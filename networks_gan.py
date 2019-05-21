@@ -24,7 +24,7 @@ class Generator(nn.Module):
         x = F.relu(self.deconv3(x))  # 16 x 16
         x = F.relu(self.deconv4(x))  # 32 x 32
         x = F.relu(self.deconv5(x))  # 64 x 64
-        x = F.tanh(self.deconv6(x))  # 128 x 128
+        x = torch.tanh(self.deconv6(x))  # 128 x 128
         return x
 
 

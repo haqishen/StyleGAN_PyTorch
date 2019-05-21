@@ -28,6 +28,7 @@ def readContain(folder_name):
         common_type[name.split('.')[-1]] += 1
     common_type = common_type.most_common()[0][0]
 
+    # import ipdb; ipdb.set_trace()
     # Deal with the type
     if common_type == 'jpg':
         name_list = glob(os.path.join(folder_name, '*.jpg'))
@@ -36,7 +37,8 @@ def readContain(folder_name):
     elif common_type == 'mp4':
         name_list = glob(os.path.join(folder_name, '*.mp4'))
     else:
-        raise Exception("Unknown type {}, You should customize in read.py".format(common_type))
+        # print("Unknown type {} in {}, You should customize in read.py".format(common_type, folder_name))
+        name_list = []
     return name_list
 
 def readItem(item_name):

@@ -116,16 +116,17 @@ class ImageDataset(BaseDataset):
             * This function only work if the files object is None *
             *******************************************************
         """
+        # import ipdb; ipdb.set_trace()
         if not self.files:
             self.files = {}
             for domain_idx, domain in enumerate(self.root):
                 images = []
-                for img in domain:
-                    if os.path.exists(img):
-                        if os.path.isdir(img):
-                            images += readContain(img)
+                for folder_name in domain:
+                    if os.path.exists(folder_name):
+                        if os.path.isdir(folder_name):
+                            images += readContain(folder_name)
                         else:
-                            images.append(img)
+                            images.append(folder_name)
                     else:
                         raise Exception("The path {} is not exist".format(img))
                 self.files[domain_idx] = sorted(images)

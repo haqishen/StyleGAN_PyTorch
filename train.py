@@ -27,10 +27,12 @@ CRITIC_ITER = 5
 
 def main(opts):
     # Create the data loader
+    folders = sorted(os.listdir(opts.path))
+    paths = [os.path.join(opts.path, x) for x in folders]
     loader = sunnerData.DataLoader(sunnerData.ImageDataset(
-        root=[[opts.path]],
+        root=[paths],
         transform=transforms.Compose([
-            sunnertransforms.Resize((1024, 1024)),
+            sunnertransforms.Resize((128, 128)),
             sunnertransforms.ToTensor(),
             sunnertransforms.ToFloat(),
             sunnertransforms.Transpose(sunnertransforms.BHWC2BCHW),
@@ -41,11 +43,12 @@ def main(opts):
     )
 
     # Create the model
-    G = StyleGenerator(bs=opts.batch_size).to(opts.device)
-    D = StyleDiscriminator().to(opts.device)
+    # G = StyleGenerator(bs=opts.batch_size).to(opts.device)
+    # G = StyleGenerator().to(opts.device)
+    # D = StyleDiscriminator().to(opts.device)
 
-    # G = Generator().to(opts.device)
-    # D = Discriminator().to(opts.device)
+    G = Generator().to(opts.device)
+    D = Discriminator().to(opts.device)
 
     # Create the criterion, optimizer and scheduler
     optim_D = optim.Adam(D.parameters(), lr=0.0001, betas=(0.5, 0.999))
@@ -70,6 +73,7 @@ def main(opts):
             real_logit = D(real_img)
             fake_img = G(torch.randn([real_img.size(0), 512]).to(opts.device))
             fake_logit = D(fake_img.detach())
+            # import ipdb; ipdb.set_trace()
             d_loss = -(real_logit.mean() - fake_logit.mean()) + gradient_penalty(real_img.data, fake_img.data, D) * 10.0
             loss_D_list.append(d_loss.item())
 

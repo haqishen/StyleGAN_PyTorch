@@ -26,7 +26,7 @@ def presentParameters(args_dict):
 class TrainOptions():
     def __init__(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument('--path', type=str, default='./star/')
+        parser.add_argument('--path', type=str, default='/Users/JP25565/data/animeface-character-dataset/thumb')
         parser.add_argument('--epoch', type=int, default=500)
         parser.add_argument('--batch_size', type=int, default=2)
         parser.add_argument('--type', type=str, default='style')
