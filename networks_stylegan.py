@@ -316,9 +316,9 @@ class GBlock(nn.Module):
 # =========================================================================
 class G_mapping(nn.Module):
     def __init__(self,
+                 resolution,
                  mapping_fmaps=512,
                  dlatent_size=512,
-                 resolution=1024,
                  normalize_latents=True,  # Normalize latent vectors (Z) before feeding them to the mapping layers?
                  use_wscale=True,         # Enable equalized learning rate?
                  lrmul=0.01,              # Learning rate multiplier for the mapping layers.
@@ -354,7 +354,7 @@ class G_mapping(nn.Module):
 class G_synthesis(nn.Module):
     def __init__(self,
                  dlatent_size,                       # Disentangled latent (W) dimensionality.
-                 resolution=1024,                    # Output resolution (1024 x 1024 by default).
+                 resolution,                    # Output resolution (1024 x 1024 by default).
                  fmap_base=8192,                     # Overall multiplier for the number of feature maps.
                  num_channels=3,                     # Number of output color channels.
                  structure='fixed',                  # 'fixed' = no progressive growing, 'linear' = human-readable, 'recursive' = efficient, 'auto' = select automatically.
@@ -377,7 +377,7 @@ class G_synthesis(nn.Module):
         :param fmap_max:
         """
         super(G_synthesis, self).__init__()
-
+        self.resolution = resolution
         self.nf = lambda stage: min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
         self.structure = structure
         self.resolution_log2 = int(np.log2(resolution))
@@ -391,7 +391,8 @@ class G_synthesis(nn.Module):
         for layer_idx in range(num_layers):
             res = layer_idx // 2 + 2
             shape = [1, 1, 2 ** res, 2 ** res]
-            self.noise_inputs.append(torch.randn(*shape).to("cuda"))
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            self.noise_inputs.append(torch.randn(*shape).to(device))
 
         # Blur2d
         self.blur = Blur2d(f)
@@ -444,14 +445,16 @@ class G_synthesis(nn.Module):
                               self.noise_inputs)
 
         # 256 x 256 -> 512 x 512
-        res = 9
-        self.GBlock7 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm,
-                              self.noise_inputs)
+        if self.resolution > 256:
+            res = 9
+            self.GBlock7 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm,
+                                  self.noise_inputs)
 
         # 512 x 512 -> 1024 x 1024
-        res = 10
-        self.GBlock8 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm,
-                              self.noise_inputs)
+        if self.resolution > 512:
+            res = 10
+            self.GBlock8 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm,
+                                  self.noise_inputs)
 
     def forward(self, dlatent):
         """
@@ -495,11 +498,13 @@ class G_synthesis(nn.Module):
 
             # block 7:
             # 256 x 256 -> 512 x 512
-            x = self.GBlock7(x, dlatent)
+            if self.resolution > 256:
+                x = self.GBlock7(x, dlatent)
 
             # block 8:
             # 512 x 512 -> 1024 x 1024
-            x = self.GBlock8(x, dlatent)
+            if self.resolution > 512:
+                x = self.GBlock8(x, dlatent)
 
             x = self.channel_shrinkage(x)
             images_out = self.torgb(x)
@@ -508,6 +513,7 @@ class G_synthesis(nn.Module):
 
 class StyleGenerator(nn.Module):
     def __init__(self,
+                 resolution,
                  mapping_fmaps=512,
                  style_mixing_prob=0.9,       # Probability of mixing styles during training. None = disable.
                  truncation_psi=0.7,          # Style strength multiplier for the truncation trick. None = disable.
@@ -515,13 +521,13 @@ class StyleGenerator(nn.Module):
                  **kwargs
                  ):
         super(StyleGenerator, self).__init__()
+        self.resolution = resolution
         self.mapping_fmaps = mapping_fmaps
         self.style_mixing_prob = style_mixing_prob
         self.truncation_psi = truncation_psi
         self.truncation_cutoff = truncation_cutoff
-
-        self.mapping = G_mapping(self.mapping_fmaps, **kwargs)
-        self.synthesis = G_synthesis(self.mapping_fmaps, **kwargs)
+        self.mapping = G_mapping(resolution=self.resolution, mapping_fmaps=self.mapping_fmaps, **kwargs)
+        self.synthesis = G_synthesis(resolution=self.resolution, dlatent_size=self.mapping_fmaps, **kwargs)
 
     def forward(self, latents1):
         dlatents1, num_layers = self.mapping(latents1)
@@ -568,7 +574,7 @@ class StyleGenerator(nn.Module):
 
 class StyleDiscriminator(nn.Module):
     def __init__(self,
-                 resolution=1024,
+                 resolution,
                  fmap_base=8192,
                  num_channels=3,
                  structure='fixed',  # 'fixed' = no progressive growing, 'linear' = human-readable, 'recursive' = efficient, only support 'fixed' mode now.
@@ -584,6 +590,7 @@ class StyleDiscriminator(nn.Module):
             else: we use ordinary conv2d.
         """
         super().__init__()
+        self.resolution = resolution
         self.resolution_log2 = int(np.log2(resolution))
         assert resolution == 2 ** self.resolution_log2 and resolution >= 4
         self.nf = lambda stage: min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
@@ -620,15 +627,18 @@ class StyleDiscriminator(nn.Module):
     def forward(self, input):
         if self.structure == 'fixed':
             x = F.leaky_relu(self.fromrgb(input), 0.2, inplace=True)
-            # 1. 1024 x 1024 x nf(9)(16) -> 512 x 512
             res = self.resolution_log2
-            x = F.leaky_relu(self.conv1(x), 0.2, inplace=True)
-            x = F.leaky_relu(self.down1(self.blur2d(x)), 0.2, inplace=True)
 
-            # 2. 512 x 512 -> 256 x 256
-            res -= 1
+            x = F.leaky_relu(self.conv1(x), 0.2, inplace=True)
+            # 1. 1024 x 1024 x nf(9)(16) -> 512 x 512
+            if self.resolution > 512:
+                x = F.leaky_relu(self.down1(self.blur2d(x)), 0.2, inplace=True)
+
             x = F.leaky_relu(self.conv2(x), 0.2, inplace=True)
-            x = F.leaky_relu(self.down1(self.blur2d(x)), 0.2, inplace=True)
+            # 2. 512 x 512 -> 256 x 256
+            if self.resolution > 256:
+                res -= 1
+                x = F.leaky_relu(self.down1(self.blur2d(x)), 0.2, inplace=True)
 
             # 3. 256 x 256 -> 128 x 128
             res -= 1
